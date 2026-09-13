@@ -27,6 +27,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Prisma client 类型需 generate 后才存在（本地已生成所以此前未暴露）
+      - name: Generate Prisma client
+        run: pnpm --filter @cex/db exec prisma generate
+
       - name: Lint
         run: pnpm lint
 
