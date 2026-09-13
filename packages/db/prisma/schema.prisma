@@ -1,0 +1,221 @@
+// 核心表设计依据：《docs/技术决策方案-架构与选型.md》§7
+// 金额字段统一 BigInt（最小单位），见 @cex/shared/bigint.ts 精度红线
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  // shadow 库仅 prisma migrate dev 使用（对比迁移、生成 SQL），生产 migrate deploy 不需要
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  status       String   @default("ACTIVE") // ACTIVE | FROZEN | DISABLED
+  region       String?
+  inviteCode   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  security  UserSecurity?
+  kyc       Kyc?
+  orders    Order[]
+  deposits  Deposit[]
+  withdraws Withdraw[]
+  secEvents SecurityEvent[]
+}
+
+model UserSecurity {
+  uid              String    @id
+  totpSecretEnc    String?
+  totpEnabled      Boolean   @default(false)
+  whitelistEnabled Boolean   @default(false)
+  forbiddenUntil   DateTime? // 24h 禁提截止时间（反劫持红线）
+  user             User      @relation(fields: [uid], references: [id])
+}
+
+model Kyc {
+  id          String    @id @default(cuid())
+  uid         String    @unique
+  realName    String
+  idHash      String    @unique // 证件号哈希，一人一号查重
+  idNumberEnc String // 证件号加密存储
+  country     String
+  status      String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  rejectReason String?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [uid], references: [id])
+}
+
+model DepositAddress {
+  id      String @id @default(cuid())
+  uid     String
+  chain   String
+  coin    String
+  address String
+  hdPath  String
+
+  @@unique([uid, coin, chain])
+  @@unique([chain, address])
+}
+
+model Deposit {
+  id            String    @id @default(cuid())
+  uid           String
+  coin          String
+  chain         String
+  amount        BigInt
+  txid          String
+  logIndex      Int       @default(0)
+  confirmations Int       @default(0)
+  status        String    @default("DETECTED") // DETECTED | CONFIRMED | CREDITED | DROPPED | REVERSED
+  creditedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [uid], references: [id])
+
+  @@unique([txid, logIndex]) // 充值幂等红线
+  @@index([uid, createdAt])
+}
+
+model Withdraw {
+  id           String    @id @default(cuid())
+  uid          String
+  coin         String
+  chain        String
+  address      String
+  amount       BigInt
+  fee          BigInt    @default(0)
+  status       String    @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | REJECTED | BROADCASTING | BROADCASTED | COMPLETED | CANCELLED
+  txid         String?
+  rejectReason String?
+  auditor1     String?
+  auditor2     String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [uid], references: [id])
+
+  @@index([uid, createdAt])
+  @@index([status])
+}
+
+model Asset {
+  uid       String
+  coin      String
+  available BigInt   @default(0)
+  frozen    BigInt   @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@id([uid, coin])
+}
+
+model AssetFlow {
+  id           String   @id @default(cuid())
+  uid          String
+  coin         String
+  bizNo        String   @unique // 账务幂等根本
+  type         String // DEPOSIT | WITHDRAW | TRADE | FEE | REVERSAL ...
+  delta        BigInt
+  balanceAfter BigInt
+  createdAt    DateTime @default(now())
+
+  @@index([uid, createdAt])
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  clientOrderId String   @unique // 下单幂等
+  uid           String
+  pair          String
+  side          String // BUY | SELL
+  type          String // LIMIT | MARKET
+  price         BigInt?
+  amount        BigInt
+  quoteAmount   BigInt?
+  filled        BigInt   @default(0)
+  status        String   @default("ACCEPTED") // ACCEPTED | PARTIAL_FILLED | FILLED | CANCELED | REJECTED
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [uid], references: [id])
+
+  @@index([uid, createdAt])
+  @@index([pair, status])
+}
+
+model Trade {
+  id           String   @id @default(cuid())
+  pair         String
+  seq          BigInt
+  takerOrderId String
+  makerOrderId String
+  price        BigInt
+  amount       BigInt
+  takerFee     BigInt   @default(0)
+  makerFee     BigInt   @default(0)
+  createdAt    DateTime @default(now())
+
+  @@unique([pair, seq]) // 清算幂等
+}
+
+model PairConfig {
+  pair           String  @id
+  baseCoin       String
+  quoteCoin      String
+  basePrecision  Int
+  quotePrecision Int
+  minAmount      BigInt
+  minNotional    BigInt
+  makerFeeRateBp Int // 手续费率，基点（bp）
+  takerFeeRateBp Int
+  tradingEnabled Boolean @default(false)
+}
+
+model ChainConfig {
+  id               String  @id @default(cuid())
+  chain            String
+  coin             String
+  minDeposit       BigInt
+  minWithdraw      BigInt
+  withdrawFee      BigInt
+  confirmations    Int
+  depositEnabled   Boolean @default(false)
+  withdrawEnabled  Boolean @default(false)
+  hotWalletAddress String?
+  hotWalletLimit   BigInt  @default(0)
+
+  @@unique([chain, coin])
+}
+
+model AdminAuditLog {
+  id        String   @id @default(cuid())
+  adminId   String
+  action    String
+  target    String
+  before    String?
+  after     String?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([adminId, createdAt])
+}
+
+model SecurityEvent {
+  id        String   @id @default(cuid())
+  uid       String
+  type      String // PASSWORD_CHANGED | TOTP_CHANGED | NEW_DEVICE | WHITELIST_CHANGED
+  ip        String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [uid], references: [id])
+
+  @@index([uid, type, createdAt])
+}
+
+model WalletCursor {
+  chain        String   @id
+  scannedBlock BigInt   @default(0)
+  updatedAt    DateTime @updatedAt
+}

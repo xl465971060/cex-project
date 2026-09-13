@@ -1,0 +1,44 @@
+# CI：push / PR 时自动执行 Lint → Typecheck → Test → Build
+# pnpm 版本不写死，由 pnpm/action-setup 读取根 package.json 的 packageManager 字段（9.15.0）
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  verify:
+    name: Lint / Typecheck / Test / Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # 说明：当前测试均为纯单元测试，不依赖 MySQL/Redis/Kafka。
+      # 后续接入集成测试时，在 verify 下追加 services 段（mysql:8.4 / redis:7），
+      # 或单独增加 integration job —— 见 docs/项目生成说明.md §6。
