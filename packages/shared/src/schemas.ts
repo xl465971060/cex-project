@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+/** 密码强度规则（注册/重置共用，流程图 1.1/1.3：≥8 位且含字母数字） */
+const passwordRule = z
+  .string()
+  .min(8, "密码至少 8 位")
+  .regex(/[A-Za-z]/, "须包含字母")
+  .regex(/\d/, "须包含数字");
+
 /** 下单请求（前后端共享校验，见 apps/web 与 apps/api 使用处） */
 export const orderRequestSchema = z
   .object({
@@ -39,11 +46,34 @@ export type WithdrawRequest = z.infer<typeof withdrawRequestSchema>;
 /** 注册请求 */
 export const registerSchema = z.object({
   email: z.string().email(),
-  password: z
-    .string()
-    .min(8, "密码至少 8 位")
-    .regex(/[A-Za-z]/, "须包含字母")
-    .regex(/\d/, "须包含数字"),
+  password: passwordRule,
   inviteCode: z.string().optional()
 });
 export type RegisterRequest = z.infer<typeof registerSchema>;
+
+/** 注册阶段二：验证码确认建号（两阶段注册的后半） */
+export const registerConfirmSchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/, "验证码为 6 位数字")
+});
+export type RegisterConfirmRequest = z.infer<typeof registerConfirmSchema>;
+
+/** 登录请求 */
+export const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  /** 已绑定 2FA 时必填（动态码） */
+  totpCode: z.string().regex(/^\d{6}$/).optional()
+});
+export type LoginRequest = z.infer<typeof loginSchema>;
+
+/** 忘记密码：请求重置码 */
+export const forgotPasswordSchema = z.object({ email: z.string().email() });
+
+/** 重置密码（流程图 1.3）：验证码 + 新密码（强度同注册） */
+export const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  code: z.string().regex(/^\d{6}$/),
+  newPassword: passwordRule
+});
+export type ResetPasswordRequest = z.infer<typeof resetPasswordSchema>;

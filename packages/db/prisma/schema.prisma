@@ -18,7 +18,7 @@ model User {
   passwordHash String
   status       String   @default("ACTIVE") // ACTIVE | FROZEN | DISABLED
   region       String?
-  inviteCode   String?
+  invitedBy    String? // 注册时填写的邀请码 = 邀请人 uid（仅记录关系，不结算返佣）
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -36,20 +36,21 @@ model UserSecurity {
   totpEnabled      Boolean   @default(false)
   whitelistEnabled Boolean   @default(false)
   forbiddenUntil   DateTime? // 24h 禁提截止时间（反劫持红线）
+  tokenVersion     Int       @default(0) // 全端会话失效：改密/重置密码时 +1，旧 JWT 全部作废
   user             User      @relation(fields: [uid], references: [id])
 }
 
 model Kyc {
-  id          String    @id @default(cuid())
-  uid         String    @unique
-  realName    String
-  idHash      String    @unique // 证件号哈希，一人一号查重
-  idNumberEnc String // 证件号加密存储
-  country     String
-  status      String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  id           String   @id @default(cuid())
+  uid          String   @unique
+  realName     String
+  idHash       String   @unique // 证件号哈希，一人一号查重
+  idNumberEnc  String // 证件号加密存储
+  country      String
+  status       String   @default("PENDING") // PENDING | APPROVED | REJECTED
   rejectReason String?
-  createdAt   DateTime  @default(now())
-  user        User      @relation(fields: [uid], references: [id])
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [uid], references: [id])
 }
 
 model DepositAddress {
@@ -83,21 +84,21 @@ model Deposit {
 }
 
 model Withdraw {
-  id           String    @id @default(cuid())
+  id           String   @id @default(cuid())
   uid          String
   coin         String
   chain        String
   address      String
   amount       BigInt
-  fee          BigInt    @default(0)
-  status       String    @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | REJECTED | BROADCASTING | BROADCASTED | COMPLETED | CANCELLED
+  fee          BigInt   @default(0)
+  status       String   @default("PENDING_REVIEW") // PENDING_REVIEW | APPROVED | REJECTED | BROADCASTING | BROADCASTED | COMPLETED | CANCELLED
   txid         String?
   rejectReason String?
   auditor1     String?
   auditor2     String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  user         User      @relation(fields: [uid], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [uid], references: [id])
 
   @@index([uid, createdAt])
   @@index([status])
@@ -206,12 +207,28 @@ model AdminAuditLog {
 model SecurityEvent {
   id        String   @id @default(cuid())
   uid       String
-  type      String // PASSWORD_CHANGED | TOTP_CHANGED | NEW_DEVICE | WHITELIST_CHANGED
+  type      String // LOGIN | NEW_DEVICE | PASSWORD_CHANGED | TOTP_CHANGED | WHITELIST_CHANGED
   ip        String?
+  userAgent String? // 新设备判断 = IP + UA 历史未出现（流程图 1.2 情况3）
   createdAt DateTime @default(now())
   user      User     @relation(fields: [uid], references: [id])
 
   @@index([uid, type, createdAt])
+}
+
+// M1 决策：邮件先写 outbox（可查不发），M2-5 接真实 SMTP
+model MailLog {
+  id        String    @id @default(cuid())
+  uid       String?
+  to        String // 收件邮箱
+  type      String // REGISTER_CODE | RESET_CODE | WELCOME | NEW_DEVICE | PASSWORD_CHANGED ...
+  payload   String // JSON：模板变量（如验证码）
+  status    String    @default("PENDING") // PENDING | SENT | FAILED
+  createdAt DateTime  @default(now())
+  sentAt    DateTime?
+
+  @@index([to, type, createdAt])
+  @@index([status])
 }
 
 model WalletCursor {
