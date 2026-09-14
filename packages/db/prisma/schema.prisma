@@ -114,14 +114,21 @@ model Asset {
   @@id([uid, coin])
 }
 
+// 不可变账务流水（流程图 5.1）：只增不改不删，差错走冲正（REVERSAL）。
+// 对账恒等式：SUM(availDelta) == Asset.available；SUM(frozenDelta) == Asset.frozen。
 model AssetFlow {
   id           String   @id @default(cuid())
   uid          String
   coin         String
-  bizNo        String   @unique // 账务幂等根本
-  type         String // DEPOSIT | WITHDRAW | TRADE | FEE | REVERSAL ...
-  delta        BigInt
-  balanceAfter BigInt
+  bizNo        String   @unique // 账务幂等根本：同单号重放返回原流水，不重复记账
+  type         String // CREDIT | DEBIT | FREEZE | UNFREEZE | REVERSAL
+  availDelta   BigInt // 本次对「可用余额」的净变化（带符号）
+  frozenDelta  BigInt // 本次对「冻结余额」的净变化（带符号）
+  availBefore  BigInt // 余额快照：操作前可用
+  availAfter   BigInt // 余额快照：操作后可用
+  frozenBefore BigInt // 余额快照：操作前冻结
+  frozenAfter  BigInt // 余额快照：操作后冻结
+  ref          String? // 关联业务单号：充值txid / 订单id / 提现单号 / 冲正的原bizNo
   createdAt    DateTime @default(now())
 
   @@index([uid, createdAt])

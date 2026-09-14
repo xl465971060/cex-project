@@ -77,3 +77,31 @@ export const resetPasswordSchema = z.object({
   newPassword: passwordRule
 });
 export type ResetPasswordRequest = z.infer<typeof resetPasswordSchema>;
+
+/* ───────────────────────── 账务统一入口（M1-T1，Admin 内部接口用） ───────────────────────── */
+
+/** 账务四操作（第五操作 REVERSAL 走 /ledger/reverse，对原流水反向） */
+export const LEDGER_OPS = ["CREDIT", "DEBIT", "FREEZE", "UNFREEZE"] as const;
+export type LedgerOp = (typeof LEDGER_OPS)[number];
+
+/** 账务操作请求：amount 为十进制字符串，服务端按 COIN_DECIMALS 换成最小单位（资金红线：不收 number） */
+export const ledgerOpSchema = z.object({
+  op: z.enum(LEDGER_OPS),
+  uid: z.string().min(1),
+  coin: z.string().min(1).max(16),
+  /** 幂等单号：必填且全局唯一，重放返回原流水 */
+  bizNo: z.string().min(4).max(64),
+  amount: z.string().regex(/^\d+(\.\d+)?$/, "金额必须是非负十进制字符串"),
+  /** 仅 op=DEBIT 有效：从冻结余额扣（提现打款成功场景） */
+  fromFrozen: z.boolean().optional(),
+  ref: z.string().max(128).optional()
+});
+export type LedgerOpRequest = z.infer<typeof ledgerOpSchema>;
+
+/** 冲正请求：按原流水 bizNo 生成一笔完全反向的 REVERSAL 流水（原流水不可变） */
+export const ledgerReverseSchema = z.object({
+  originalBizNo: z.string().min(4).max(64),
+  newBizNo: z.string().min(4).max(64),
+  reason: z.string().max(200).optional()
+});
+export type LedgerReverseRequest = z.infer<typeof ledgerReverseSchema>;

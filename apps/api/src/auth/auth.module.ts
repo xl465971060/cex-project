@@ -31,6 +31,7 @@ import { MailService } from "./mail.service";
       inject: [RedisCodeStore]
     }
   ],
-  exports: []
+  // 导出 JwtModule(JwtGuard 依赖 JwtService,导出 provider 必须连带其依赖模块)
+  exports: [JwtModule, JwtGuard]
 })
 export class AuthModule {}
